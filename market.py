@@ -1,3 +1,4 @@
+import csv
 import json
 import os
 import pickle
@@ -5,35 +6,18 @@ import requests
 import statistics
 import time
 
-ITEM_URL_NAMES_FILE = 'item_url_names'
-ITEM_HIST_STATS_FILE = 'item_hist_stats'
+ITEM_URL_NAMES_FILE = 'item_url_names.data'
+ITEM_HIST_STATS_FILE = 'item_hist_stats.data'
+ITEMS_TO_WATCH_FILE = 'watch_items.csv'
+
 GET_ITEMS_API = 'https://api.warframe.market/v1/items'
 
 item_url_names = []         # url names of items for api calls
 item_hist_stats = {}   # historical item statistics
+items_to_watch = []
 
-ITEM_MARKET_WATCH = [
-    {
-        'url_name': 'rifle_riven_mod_(veiled)',
-        'buy_price': 45,
-        'sell_price': 58
-    },
-    {
-        'url_name': 'shotgun_riven_mod_(veiled)',
-        'buy_price': 85,
-        'sell_price': 110
-    },
-    {
-        'url_name': 'pistol_riven_mod_(veiled)',
-        'buy_price': 15,
-        'sell_price': 30
-    },
-    {
-        'url_name': 'melee_riven_mod_(veiled)',
-        'buy_price': 25,
-        'sell_price': 35
-    }
-]
+GREEN = '\033[92m'
+WHITE = '\033[0m'
 
 def get_json_from_api(api_call):
     return requests.get(api_call).json()
@@ -54,6 +38,7 @@ def get_item_url_names():
 
 def format_item_statistics_api(url_name):
     return '/'.join([GET_ITEMS_API, url_name, 'statistics'])
+
 
 def format_item_orders_api(url_name):
     return '/'.join([GET_ITEMS_API, url_name, 'orders'])
@@ -124,17 +109,50 @@ def get_online_orders(url_name):
             buyers.append(order)
     buyers = sorted(buyers, key=lambda k: k['platinum'], reverse=True) 
     sellers = sorted(sellers, key=lambda k: k['platinum'])
-    ret = {
-        'buyers': buyers,
-        'sellers': sellers
-    }
-    return ret
+    return {'buyers': buyers, 'sellers': sellers}
+
+
+# Determines if an order has been seen before or not
+def is_new_order(url_name, order, orders_seen):
+    if order['order_type'] == 'buy':
+        for buyer in orders_seen[url_name]['buyers']:
+            if  buyer['user']['ingame_name'] == order['user']['ingame_name'] and \
+                buyer['platinum'] == order['platinum']:
+                    return False
+    else:
+        for seller in orders_seen[url_name]['sellers']:
+            if  seller['user']['ingame_name'] == order['user']['ingame_name'] and \
+                seller['platinum'] == order['platinum']:
+                    return False
+    return True
+
+
+def read_items_to_watch():
+    global items_to_watch
+    print 'Reading items to watch...'
+    with open(ITEMS_TO_WATCH_FILE, 'rb') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if row[0] not in item_url_names or \
+                    not row[1].isdigit() or \
+                    not row[2].isdigit():
+                print 'Invalid syntax for watching:'
+                print row
+                exit()
+            items_to_watch.append({
+                'url_name': row[0],
+                'buy_price': int(row[1]),
+                'sell_price': int(row[2])
+            })
+            print '{} | Buy: {} Sell: {}'.format(row[0], row[1], row[2])
+
 
 def market_watch(): 
+    read_items_to_watch()
     orders_seen = {}
     while True:
-        for item in ITEM_MARKET_WATCH:
-            print 'Checking market for deals on ' + item['url_name'] + '...'
+        for item in items_to_watch:
+            print 'Checking the market for deals on ' + item['url_name'] + '...'
             if item['url_name'] not in orders_seen:
                 orders_seen[item['url_name']] = {
                     'buyers': [],
@@ -142,53 +160,33 @@ def market_watch():
                 }
             item_orders = orders_seen[item['url_name']]
             orders = get_online_orders(item['url_name'])
-    
-            # Determines if an order has been seen before or not
-            def is_new_order(order):
-                if order['order_type'] == 'buy':
-                    for buyer in orders_seen[item['url_name']]['buyers']:
-                        if  buyer['user']['ingame_name'] == order['user']['ingame_name'] and \
-                            buyer['platinum'] == order['platinum']:
-                                return False
-                else:
-                    for seller in orders_seen[item['url_name']]['sellers']:
-                        if  seller['user']['ingame_name'] == order['user']['ingame_name'] and \
-                            seller['platinum'] == order['platinum']:
-                                return False
-                return True
 
             # Check if any new orders are good deals
             for buyer in orders['buyers']:
-                if is_new_order(buyer)  and buyer['platinum'] >= item['sell_price']:
+                if is_new_order(item['url_name'], buyer, orders_seen)  and buyer['platinum'] >= item['sell_price']:
                     print_order(item['url_name'], buyer)
             for seller in orders['sellers']:
-                if is_new_order(seller) and seller['platinum'] <= item['buy_price']:
+                if is_new_order(item['url_name'], seller, orders_seen) and seller['platinum'] <= item['buy_price']:
                     print_order(item['url_name'], seller)
             
             # Update to current orders
             orders_seen[item['url_name']]['buyers'] = orders['buyers']
             orders_seen[item['url_name']]['sellers'] = orders['sellers']
 
-            # Print current price statistics
-            highest_buy_price = orders['buyers'][0]['platinum']
-            lowest_sell_price = orders['sellers'][0]['platinum']
-            print '{} | Highest buyer: {} platinum \t Lowest Seller: {} platinum'.format(
-                    item['url_name'], highest_buy_price, lowest_sell_price)
-            print ''
-        
         print 'Sleeping for 20 seconds...'
         time.sleep(20)
 
 
-
 def print_order(item, order):    
+    print GREEN
     print '%%%%-----------------------------------%%%%'
     if order['order_type'] == 'sell':
         print '{} is selling {}x of {} for {} platinum!'.format(order['user']['ingame_name'], order['quantity'], item, order['platinum'])
     else:
         print '{} is buying {}x of {} for {} platinum!'.format(order['user']['ingame_name'], order['quantity'],  item, order['platinum'])
     print '%%%%-----------------------------------%%%%'
-    print ''
+    print WHITE
 
-
+''' Drivers '''
+get_item_url_names()
 market_watch()
