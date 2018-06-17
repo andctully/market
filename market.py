@@ -12,17 +12,20 @@ ITEMS_TO_WATCH_FILE = 'watch_items.csv'
 
 GET_ITEMS_API = 'https://api.warframe.market/v1/items'
 
-item_url_names = []         # url names of items for api calls
-item_hist_stats = {}   # historical item statistics
-items_to_watch = []
-
 GREEN = '\033[92m'
 WHITE = '\033[0m'
+
+item_url_names = []         # url names of items for api calls
+item_hist_stats = {}        # historical item statistics
+items_to_watch = []         # dicts containing items and buy/sell prices to watch
+
 
 def get_json_from_api(api_call):
     return requests.get(api_call).json()
 
 
+# Gets all item url names
+# Will first attempt to load from local storage and will then pull from API
 def get_item_url_names():
     global item_url_names
     if os.path.exists(ITEM_URL_NAMES_FILE):
@@ -44,6 +47,8 @@ def format_item_orders_api(url_name):
     return '/'.join([GET_ITEMS_API, url_name, 'orders'])
 
 
+# Gets 90 day historical statistics for all items
+# Will first attempt to load from local storage and will then pull from API
 def get_item_statistics():
     global item_hist_stats
     if os.path.exists(ITEM_HIST_STATS_FILE):
@@ -86,6 +91,7 @@ def get_item_statistics():
                 'max_prices': max_prices,
                 'volumes': volumes
             }
+
             counter += 1
             print '(' + str(counter) + '/' + str(len(item_url_names)) + ') Item Stats Obtained'
 
@@ -93,6 +99,7 @@ def get_item_statistics():
             pickle.dump(item_hist_stats, f, pickle.HIGHEST_PROTOCOL)
 
 
+# Uses the warframe.market API to get order data for a particular item
 def get_online_orders(url_name):
     item_orders_api = format_item_orders_api(url_name)
     json = get_json_from_api(item_orders_api)
@@ -127,6 +134,7 @@ def is_new_order(url_name, order, orders_seen):
     return True
 
 
+# Reads in the csv of items and buy/sell prices to be watched
 def read_items_to_watch():
     global items_to_watch
     print 'Reading items to watch...'
@@ -144,9 +152,10 @@ def read_items_to_watch():
                 'buy_price': int(row[1]),
                 'sell_price': int(row[2])
             })
-            print '{} | Buy: {} Sell: {}'.format(row[0], row[1], row[2])
+            print '{} \t | Buy: {} Sell: {}'.format(row[0], row[1], row[2])
 
 
+# Continuously searches for deals on items specified in the market watch file
 def market_watch(): 
     read_items_to_watch()
     orders_seen = {}
@@ -177,6 +186,7 @@ def market_watch():
         time.sleep(20)
 
 
+# Prints a "deal" order to the console
 def print_order(item, order):    
     print GREEN
     print '%%%%-----------------------------------%%%%'
